@@ -118,7 +118,7 @@ h2.fname { font-family: var(--font-display); font-weight: 800; font-size: 32px; 
 .slider-row output { font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; min-width: 4ch; text-align: right; }
 input[type=range] { width: 100%; accent-color: var(--accent); }
 
-.fgrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 8px; }
+.fgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 8px; }
 .fbtn { border: 0; background: none; padding: 0; cursor: pointer; display: grid; gap: 4px; text-align: left; min-width: 0; }
 .fbtn canvas { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; display: block; border-radius: 5px; outline: 2px solid transparent; outline-offset: 2px; background: var(--line); }
 .fbtn[aria-pressed="true"] canvas { outline-color: var(--accent); }
@@ -355,6 +355,28 @@ const FILTERS = [
     sat: .7, vib: .05, sh: [-.035, .015, .03], hi: [.035, .02, -.02], grain: .12, vignette: .3, wbKeep: .5, expTarget: .44,
     shadows: .15, highlights: .3, clarity: .1 },
 
+  /* Sunset Glow: measured from a reference sunset-silhouette photo. Per-channel curves send neutral tones to the
+     reference's colour at each brightness (near-black warm shadows, golden-amber mids, cream highlights capped near 0.87),
+     applied at ~60% because sunset scenes already carry their own warmth. */
+  { id: 'sunset', set: 'both', name: 'Sunset Glow', blurb: 'Golden-amber mids, deep warm shadows and creamy, rolled-off highlights for sunsets and silhouettes.',
+    rgb: LIN,
+    r: [[0, .01], [.1, .089], [.3, .363], [.5, .576], [.7, .771], [.85, .852], [1, .9]],
+    g: [[0, .01], [.1, .067], [.3, .289], [.5, .514], [.7, .692], [.85, .785], [1, .87]],
+    b: [[0, .008], [.1, .051], [.3, .217], [.5, .423], [.7, .574], [.85, .634], [1, .766]],
+    sat: .9, vib: .1, sh: [.01, 0, -.005], hi: [0, 0, 0], grain: .12, vignette: .25, wbKeep: .8,
+    shadows: 0, highlights: .25, clarity: .1 },
+
+  /* Moody Olive: measured from a reference couple-under-umbrella photo. Faded olive-khaki blacks (~0.11),
+     olive midtones, highlights capped near 0.76 as soft grey-cream, low contrast, darker exposure,
+     and greens pushed toward olive. Tint applied at ~50% since much of the reference's olive came from its grass. */
+  { id: 'olive', set: 'both', name: 'Moody Olive', blurb: 'Faded olive shadows, muted grey-cream highlights and greens turned khaki. Dark and quiet.',
+    rgb: LIN,
+    r: [[0, .112], [.15, .173], [.35, .305], [.55, .479], [.75, .626], [.9, .716], [1, .78]],
+    g: [[0, .11], [.15, .17], [.35, .305], [.55, .475], [.75, .622], [.9, .71], [1, .756]],
+    b: [[0, .095], [.15, .147], [.35, .245], [.55, .411], [.75, .583], [.9, .689], [1, .741]],
+    sat: .82, vib: 0, olive: .5, sh: [0, .005, -.004], hi: [0, 0, 0], grain: .15, vignette: .35, wbKeep: .6, expTarget: .38,
+    shadows: 0, highlights: .35, clarity: .1 },
+
   /* Learned look: a 17×17×17 color lookup table fitted from a before/after pair
      (05.16.26 DJ & JANE (LASPINAS): RAW/J2/MNWR0160.JPG → ENHANCED/PREPS/MNWR0160.jpg).
      Shown in both filter sets. White balance is left alone because the edit was made on the camera's own color. */
@@ -468,6 +490,8 @@ function terms(A, id) {
     case 'moody': return [[3, 1 - ramp(A.bright, .3, .5), 'Dark, low-key exposure'], [1, ramp(A.contrast, .2, .3), 'Strong shapes in the light'], [1, 1 - ramp(A.sat, .2, .4), 'Muted colors suit a moody grade']];
     case 'fineart': return [[3, 1 - ramp(A.sat, .1, .25), 'Very little color to lose'], [2, ramp(A.contrast, .22, .32), 'Strong contrast and shapes'], [1, ramp(A.castMag, .06, .15), 'Mixed or tinted light that black and white sidesteps']];
     case 'cinematic': return [[2, ramp(A.skin, .02, .15), 'People to put at the center of the shot'], [2, bell(A.contrast, .24, .08), 'A contrast range that grades well'], [1, bell(A.bright, .45, .18), 'Mid exposure suits a film grade'], [1, ramp(A.sat, .2, .4), 'Strong colors to pull into a graded palette']];
+    case 'sunset': return [[4, ramp(A.warmth, .05, .18), 'Warm sunset or golden light in the frame'], [2, ramp(A.contrast, .22, .32), 'Strong contrast, like a backlit silhouette'], [1, ramp(A.clipLo, .05, .25), 'Deep shadow areas to keep rich']];
+    case 'olive': return [[3, ramp(A.foliage, .1, .4), 'Grass and trees to turn olive'], [2, 1 - ramp(A.bright, .35, .6), 'Dim or overcast light suits a moody grade'], [1, 1 - ramp(A.sky, .05, .25), 'Little open sky'], [1, ramp(A.skin, .02, .1), 'People in the frame']];
     case 'djjane': { const sim = refSim(A, byId('djjane').ref);
       return [[4, sim, 'Light and color close to the shot this look was learned from'], [2, ramp(A.skin, .03, .15), 'Skin tones, like the reference photo'], [1, bell(A.bright, .6, .2), 'Bright exposure suits the soft matte finish'], [1, 1 - ramp(A.noise, .5, .9), 'Clean enough for the fine grain to read as film']]; }
     case 'filmemu': return [[2, ramp(A.skin, .03, .15), 'People look natural in film tones'], [2, bell(A.bright, .55, .2), 'Bright, even exposure'], [1, 1 - ramp(A.contrast, .2, .3), 'Gentle contrast to start from']];
@@ -583,7 +607,7 @@ function render(src, A, F, strength) {
   for (let x = 0; x < w; x++) dx2[x] = ((x - cx) / cx) ** 2;
   for (let y = 0; y < h; y++) dy2[y] = ((y - cy) / cy) ** 2;
   const gs = Math.max(1, Math.round(Math.max(w, h) / 2800));
-  const gA = F.grain * .09, vig = F.vignette * .5, sat = F.sat, vib = F.vib || 0, sh = F.sh, hi = F.hi, mono = !!F.mono;
+  const gA = F.grain * .09, vig = F.vignette * .5, sat = F.sat, vib = F.vib || 0, sh = F.sh, hi = F.hi, mono = !!F.mono, olv = F.olive || 0;
   const st = strength, LUTD = F.lut || null, LUTQ = F.lutSize || 0;
   const shA = C.shadows, hiA = C.highlights, clA = C.clarity, useMap = !!(shA || hiA || clA);
   let LM = null, colA, colB, colW;
@@ -627,6 +651,7 @@ function render(src, A, F, strength) {
         const mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
         const k = sat + vib * (1 - (mx - mn));
         r = l + (r - l) * k; g = l + (g - l) * k; b = l + (b - l) * k;
+        if (olv) { const rb = r > b ? r : b; if (g > rb) { const d = g - rb; r += olv * d * .8; g -= olv * d * .25; } } // greens toward olive
       }
       let l2 = .2126 * r + .7152 * g + .0722 * b; l2 = l2 < 0 ? 0 : l2 > 1 ? 1 : l2;
       const ws = (1 - l2) * (1 - l2), wh = l2 * l2;
