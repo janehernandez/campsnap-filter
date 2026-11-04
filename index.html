@@ -126,6 +126,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .fbtn .p { font-family: var(--font-mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; gap: 6px; align-items: center; }
 .fbtn .best { color: var(--accent-ink); font-weight: 700; }
 
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--bg); }
+.seg button { border: 0; background: transparent; padding: 5px 11px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 .meters { display: grid; gap: 10px; }
 .meter { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
 .meter .k { color: var(--muted); }
@@ -160,12 +164,12 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   <header class="top">
     <div class="brand">
       <span class="mark">Snap<i>/</i>Lab</span>
-      <span class="tag">Auto filters for Camp Snap photos</span>
+      <span class="tag">Auto filters for Camp Snap &amp; DSLR photos</span>
     </div>
     <div class="top-actions">
       <span class="counter">Frames <b id="countNum">00</b></span>
       <button class="btn primary" id="addBtn" type="button">Add photos</button>
-      <input type="file" id="fileIn" multiple accept="image/jpeg,image/png,image/webp,image/*" hidden>
+      <input type="file" id="fileIn" multiple accept="image/jpeg,image/png,image/webp,image/*,.cr2,.cr3,.crw,.nef,.nrw,.arw,.srf,.sr2,.dng,.orf,.rw2,.raf,.pef,.srw,.3fr,.iiq,.erf,.kdc,.mrw,.x3f,.rwl" hidden>
     </div>
   </header>
 
@@ -181,10 +185,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
         </div>
       </div>
       <div class="photo-meta">
-        <span id="photoName"></span><span id="photoDims"></span><span class="pill" id="sampleNote" hidden>Sample photo · add your own to replace it</span>
+        <span id="photoName"></span><span id="photoDims"></span><span id="photoCam"></span><span class="pill" id="rawNote" hidden>RAW · edited from the embedded full-size preview</span><span class="pill" id="sampleNote" hidden>Sample photo · add your own to replace it</span>
       </div>
       <div class="strip-wrap"><div class="strip" id="strip"></div></div>
-      <p class="foot">Photos never leave your device: analysis and editing run in this page. Drop a whole SD-card folder of JPEGs to batch them; every frame gets its own best filter.</p>
+      <p class="foot">Photos never leave your device: analysis and editing run in this page. Drop a whole SD-card folder to batch it; every frame gets its own best filter. DSLR RAW files (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2 and more) are opened through the full-size JPEG preview the camera stores inside them, so in-camera settings like picture style are baked in.</p>
     </section>
 
     <aside class="panel" aria-label="Lab report">
@@ -206,6 +210,13 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
       </section>
 
       <section>
+        <div class="set-row">
+          <span class="eyebrow">Filter set</span>
+          <div class="seg" id="setSeg" role="group" aria-label="Filter set">
+            <button type="button" data-set="campsnap" aria-pressed="true">Camp Snap</button>
+            <button type="button" data-set="dslr" aria-pressed="false">DSLR / RAW</button>
+          </div>
+        </div>
         <div class="eyebrow"><span>All filters</span><span>Match</span></div>
         <div class="fgrid" id="fgrid"></div>
       </section>
@@ -291,14 +302,43 @@ const FILTERS = [
     sat: 1, vib: 0, sh: [0, 0, 0], hi: [.008, .004, 0], grain: .45, vignette: .35, wbKeep: 0 },
   { id: 'night', name: 'Night Lift', blurb: 'Opens up dark frames and campfire shots without blowing them out.',
     rgb: [[0, .03], [.15, .22], [.4, .5], [.7, .78], [1, .97]], r: LIN, g: LIN, b: LIN,
-    sat: .95, vib: .05, sh: [-.01, 0, .03], hi: [.03, .015, -.01], grain: .35, vignette: .3, wbKeep: .4, expTarget: .38 }
+    sat: .95, vib: .05, sh: [-.01, 0, .03], hi: [.03, .015, -.01], grain: .35, vignette: .3, wbKeep: .4, expTarget: .38 },
+
+  /* DSLR / RAW set: clean files, so no grain; local tone (shadows/highlights/clarity) does the heavy lifting.
+     DSLR white balance is usually deliberate, so most of it is kept. */
+  { id: 'natural', set: 'dslr', name: 'Clean Natural', blurb: 'True-to-life color with a little extra depth. A safe finish for good exposures.',
+    rgb: [[0, 0], [.25, .235], [.5, .51], [.75, .77], [1, 1]], sat: 1, vib: .15, sh: [0, 0, 0], hi: [0, 0, 0],
+    grain: 0, vignette: .05, wbKeep: .7, shadows: .15, highlights: .2, clarity: .15 },
+  { id: 'landscape', set: 'dslr', name: 'Landscape Pop', blurb: 'Recovered skies, opened shadows and rich greens and blues.',
+    rgb: [[0, 0], [.25, .22], [.5, .51], [.75, .8], [1, 1]], sat: 1.08, vib: .35, sh: [0, 0, .008], hi: [.005, .003, 0],
+    grain: 0, vignette: .12, wbKeep: .6, shadows: .3, highlights: .45, clarity: .45 },
+  { id: 'studio', set: 'dslr', name: 'Studio Portrait', blurb: 'Smooth, bright skin with gently held highlights.',
+    rgb: [[0, .02], [.25, .26], [.5, .52], [.75, .78], [1, .98]], r: [[0, 0], [.5, .515], [1, 1]], sat: .95, vib: .05, sh: [.005, 0, .005], hi: [.01, .005, 0],
+    grain: 0, vignette: .15, wbKeep: .6, shadows: .2, highlights: .3, clarity: -.08 },
+  { id: 'cine', set: 'dslr', name: 'Teal & Amber', blurb: 'A graded film look: cool shadows, warm skin and highlights.',
+    rgb: [[0, .03], [.25, .23], [.5, .5], [.75, .79], [1, .97]], sat: .92, vib: .1, sh: [-.03, .01, .035], hi: [.035, .015, -.03],
+    grain: .04, vignette: .25, wbKeep: .6, shadows: .15, highlights: .3, clarity: .2 },
+  { id: 'hdr', set: 'dslr', name: 'Dynamic Range', blurb: 'Pulls detail out of bright skies and dark shadows in high-contrast scenes.',
+    rgb: [[0, 0], [.25, .24], [.5, .5], [.75, .77], [1, 1]], sat: 1, vib: .2, sh: [0, 0, 0], hi: [0, 0, 0],
+    grain: 0, vignette: 0, wbKeep: .7, shadows: .7, highlights: .8, clarity: .35 },
+  { id: 'moody', set: 'dslr', name: 'Low-Key Mood', blurb: 'Deep shadows, quiet color and a dark edge.',
+    rgb: [[0, 0], [.2, .12], [.5, .42], [.8, .78], [1, .95]], sat: .78, vib: 0, sh: [0, .005, .015], hi: [.01, .005, 0],
+    grain: .05, vignette: .4, wbKeep: .6, shadows: 0, highlights: .3, clarity: .3 },
+  { id: 'fineart', set: 'dslr', name: 'Fine Art B&W', blurb: 'Clean black and white with full tonal range and crisp texture.',
+    rgb: [[0, .01], [.25, .21], [.5, .5], [.75, .8], [1, .99]], mono: true, sat: 1, vib: 0, sh: [0, 0, 0], hi: [0, 0, 0],
+    grain: .05, vignette: .2, wbKeep: 0, shadows: .2, highlights: .4, clarity: .4 },
+  { id: 'filmemu', set: 'dslr', name: 'Film Emulation', blurb: 'Soft, warm portrait-film color with fine grain on a digital file.',
+    rgb: [[0, .04], [.25, .27], [.5, .53], [.75, .77], [1, .96]], r: [[0, 0], [.5, .52], [1, 1]], b: [[0, .03], [.5, .48], [1, .96]],
+    sat: .9, vib: .1, sh: [.01, .005, 0], hi: [.015, .008, -.008], grain: .14, vignette: .15, wbKeep: .5, shadows: .1, highlights: .35, clarity: .05 }
 ];
 for (const f of FILTERS) {
+  f.set = f.set || 'campsnap';
   f.t = { rgb: curveTable(f.rgb), r: curveTable(f.r || LIN), g: curveTable(f.g || LIN), b: curveTable(f.b || LIN) };
 }
 const byId = id => FILTERS.find(f => f.id === id);
 
 /* ---------- analysis ---------- */
+const dims = img => [img.naturalWidth || img.width, img.naturalHeight || img.height];
 function newCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 function ctx2d(c) { return c.getContext('2d', { willReadFrequently: true }); }
 function drawToData(img, maxEdge) {
@@ -348,7 +388,7 @@ function analyze(img) {
   const p995 = pct(.995);
   const nz = noiseSharp(img);
   return {
-    w: img.naturalWidth, h: img.naturalHeight,
+    w: dims(img)[0], h: dims(img)[1],
     bright: mean, contrast: std, median: pct(.5),
     black: Math.min(.1, pct(.005) * .85), white: p995 > .97 ? 1 : Math.max(.8, p995 + .01),
     clipHi: clipHi / n, clipLo: clipLo / n, sat: sumS / n,
@@ -360,7 +400,7 @@ function analyze(img) {
 
 // Noise + sharpness from a 1:1 crop of the full-resolution frame (downscaling hides sensor noise).
 function noiseSharp(img) {
-  const W = img.naturalWidth, H = img.naturalHeight, cs = Math.min(512, W, H);
+  const [W, H] = dims(img), cs = Math.min(512, W, H);
   const c = newCanvas(cs, cs), x = ctx2d(c);
   x.drawImage(img, Math.floor((W - cs) / 2), Math.floor((H - cs) / 2), cs, cs, 0, 0, cs, cs);
   const p = x.getImageData(0, 0, cs, cs).data, L = new Float32Array(cs * cs);
@@ -388,11 +428,20 @@ function terms(A, id) {
     case 'matte': return [[3, ramp(A.contrast, .22, .32), 'Harsh contrast to calm down'], [2, ramp(A.clipHi, .01, .08), 'Blown highlights blend in with a faded look'], [1, ramp(A.sat, .3, .5), 'Strong colors to tone down'], [1, ramp(Math.abs(A.tint), .02, .08), 'A color tint to soften']];
     case 'mono': return [[3, ramp(A.noise, .35, .8), 'Heavy noise reads as film grain in black and white'], [2, ramp(A.castMag, .06, .18), 'A strong color cast that is hard to fix'], [2, 1 - ramp(A.sat, .1, .25), 'Very little color to lose'], [1, ramp(A.contrast, .2, .3), 'Strong contrast and shapes']];
     case 'night': return [[5, 1 - ramp(A.bright, .18, .38), 'Underexposed or low-light shot'], [2, ramp(A.clipLo, .1, .4), 'Large areas of crushed shadow'], [1, ramp(A.noise, .3, .7), 'Low-light noise to hide under grain']];
+    // DSLR set
+    case 'natural': return [[3, 1 - ramp(A.castMag, .02, .08), 'Color is already well balanced'], [2, bell(A.bright, .48, .15), 'Exposure is on target'], [2, bell(A.contrast, .21, .06), 'Contrast is already healthy'], [1, 1 - ramp(A.clipHi + A.clipLo, .02, .1), 'No large clipped areas to rescue']];
+    case 'landscape': return [[4, ramp(outdoors, .15, .5), 'Big areas of sky and foliage'], [2, 1 - ramp(A.skin, .03, .12), 'No faces that could look oversaturated'], [1, 1 - ramp(A.sat, .25, .45), 'Colors have room to grow'], [1, ramp(A.bright, .35, .55), 'Daylight exposure']];
+    case 'studio': return [[4, ramp(A.skin, .06, .25), 'Faces fill much of the frame'], [1, 1 - ramp(outdoors, .1, .4), 'Few landscape colors competing with skin'], [1, bell(A.bright, .55, .2), 'Even, bright light']];
+    case 'cine': return [[2, ramp(A.skin, .02, .15), 'Skin tones to set against teal shadows'], [2, bell(A.bright, .4, .15), 'Mid-to-low exposure suits a graded look'], [1, ramp(A.contrast, .18, .28), 'Enough contrast for a cinematic feel'], [1, ramp(A.warmth, 0, .1), 'Warm light to build the amber on']];
+    case 'hdr': return [[4, ramp(A.clipHi, .005, .05), 'Bright areas near clipping to pull back'], [3, ramp(A.clipLo, .03, .2), 'Deep shadows hiding detail'], [2, ramp(A.contrast, .24, .34), 'A wide range from dark to bright']];
+    case 'moody': return [[3, 1 - ramp(A.bright, .3, .5), 'Dark, low-key exposure'], [1, ramp(A.contrast, .2, .3), 'Strong shapes in the light'], [1, 1 - ramp(A.sat, .2, .4), 'Muted colors suit a moody grade']];
+    case 'fineart': return [[3, 1 - ramp(A.sat, .1, .25), 'Very little color to lose'], [2, ramp(A.contrast, .22, .32), 'Strong contrast and shapes'], [1, ramp(A.castMag, .06, .15), 'Mixed or tinted light that black and white sidesteps']];
+    case 'filmemu': return [[2, ramp(A.skin, .03, .15), 'People look natural in film tones'], [2, bell(A.bright, .55, .2), 'Bright, even exposure'], [1, 1 - ramp(A.contrast, .2, .3), 'Gentle contrast to start from']];
   }
   return [];
 }
-function rank(A) {
-  return FILTERS.map(f => {
+function rank(A, set) {
+  return FILTERS.filter(f => f.set === set).map(f => {
     const t = terms(A, f.id);
     const W = t.reduce((s, x) => s + x[0], 0), score = t.reduce((s, x) => s + x[0] * x[1], 0) / W;
     const reasons = t.filter(x => x[1] > .45).sort((a, b) => b[0] * b[1] - a[0] * a[1]).slice(0, 3).map(x => x[2]);
@@ -418,7 +467,40 @@ function corrections(A, F) {
   const target = med + (goal - med) * .7;
   const gamma = clamp(Math.log(target) / Math.log(med), .55, 1.45);
   const sharpen = (A.sharp < .45 && A.noise < .55) ? .35 * (1 - A.sharp) : 0;
-  return { amt, gains, black, white, gamma, med, sharpen };
+  // Local tone amounts scale up when the frame actually has clipped-looking shadows or highlights.
+  const shadows = (F.shadows || 0) * (.6 + .8 * ramp(A.clipLo, .01, .15));
+  const highlights = (F.highlights || 0) * (.6 + .8 * ramp(A.clipHi, .002, .05));
+  const clarity = F.clarity || 0;
+  return { amt, gains, black, white, gamma, med, sharpen, shadows, highlights, clarity };
+}
+
+// Low-resolution, blurred luminance map (about 128 cells on the long edge) used for local tone work.
+function boxBlur(a, w, h, r) {
+  const t = new Float32Array(a.length);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let acc = 0, c = 0;
+    for (let d = -r; d <= r; d++) { const xx = x + d; if (xx >= 0 && xx < w) { acc += a[y * w + xx]; c++; } }
+    t[y * w + x] = acc / c;
+  }
+  for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) {
+    let acc = 0, c = 0;
+    for (let d = -r; d <= r; d++) { const yy = y + d; if (yy >= 0 && yy < h) { acc += t[yy * w + x]; c++; } }
+    a[y * w + x] = acc / c;
+  }
+}
+function localMap(s, w, h, B0, B1, B2) {
+  const cs = Math.max(1, Math.round(Math.max(w, h) / 128)), mw = Math.ceil(w / cs), mh = Math.ceil(h / cs);
+  const sum = new Float32Array(mw * mh), cnt = new Float32Array(mw * mh), st = Math.max(1, Math.floor(cs / 4));
+  for (let y = 0; y < h; y += st) {
+    const row = ((y / cs) | 0) * mw;
+    for (let x = 0; x < w; x += st) {
+      const i = (y * w + x) * 4, k = row + ((x / cs) | 0);
+      sum[k] += .2126 * B0[s[i]] + .7152 * B1[s[i + 1]] + .0722 * B2[s[i + 2]]; cnt[k]++;
+    }
+  }
+  for (let k = 0; k < sum.length; k++) sum[k] /= cnt[k] || 1;
+  for (let p = 0; p < 3; p++) boxBlur(sum, mw, mh, 2);
+  return { map: sum, mw, mh, cs };
 }
 
 function sharpenData(s, w, h, a) {
@@ -462,10 +544,35 @@ function render(src, A, F, strength) {
   const gs = Math.max(1, Math.round(Math.max(w, h) / 1400));
   const gA = F.grain * .09, vig = F.vignette * .5, sat = F.sat, vib = F.vib || 0, sh = F.sh, hi = F.hi, mono = !!F.mono;
   const st = strength;
+  const shA = C.shadows, hiA = C.highlights, clA = C.clarity, useMap = !!(shA || hiA || clA);
+  let LM = null, colA, colB, colW;
+  if (useMap) {
+    LM = localMap(s, w, h, B0, B1, B2);
+    colA = new Int32Array(w); colB = new Int32Array(w); colW = new Float32Array(w);
+    for (let x = 0; x < w; x++) {
+      const m = clamp((x + .5) / LM.cs - .5, 0, LM.mw - 1), a = m | 0;
+      colA[x] = a; colB[x] = Math.min(LM.mw - 1, a + 1); colW[x] = m - a;
+    }
+  }
   for (let y = 0; y < h; y++) {
     const gy = (y / gs) | 0, dy = dy2[y];
+    let ra = 0, rb = 0, rw = 0;
+    if (useMap) { const m = clamp((y + .5) / LM.cs - .5, 0, LM.mh - 1), a = m | 0; ra = a * LM.mw; rb = Math.min(LM.mh - 1, a + 1) * LM.mw; rw = m - a; }
     for (let x = 0, i = y * w * 4; x < w; x++, i += 4) {
       let r = B0[px[i]], g = B1[px[i + 1]], b = B2[px[i + 2]];
+      if (useMap) {
+        const M = LM.map, a = colA[x], bb = colB[x], cw = colW[x];
+        const bl = (M[ra + a] * (1 - cw) + M[ra + bb] * cw) * (1 - rw) + (M[rb + a] * (1 - cw) + M[rb + bb] * cw) * rw;
+        let m = 1;
+        if (shA && bl < .55) { const q = (.55 - bl) / .55; m += shA * q * q * 1.2; }
+        if (hiA && bl > .45) { const q = (bl - .45) / .55; m -= hiA * q * q * .45; }
+        r *= m; g *= m; b *= m;
+        if (clA) {
+          const l = .2126 * r + .7152 * g + .0722 * b, dd = (l - bl * m) * clA * (.35 + 2.6 * l * (1 - l));
+          r += dd; g += dd; b += dd;
+        }
+        r = r < 0 ? 0 : r > 1 ? 1 : r; g = g < 0 ? 0 : g > 1 ? 1 : g; b = b < 0 ? 0 : b > 1 ? 1 : b;
+      }
       if (mono) {
         const l = T[((r * .36 + g * .5 + b * .14) * 1023 + .5) | 0];
         r = g = b = l;
@@ -558,18 +665,142 @@ async function loadBlob(blob) {
   return img;
 }
 
-async function addPhoto(blob, name, isSample = false) {
-  const img = await loadBlob(blob);
-  const A = analyze(img), R = rank(A);
-  const p = { name, img, isSample, A, R, filterId: R[0].id, strength: 1,
+/* ---------- RAW + EXIF ---------- */
+const RAW_RE = /\.(cr2|cr3|crw|nef|nrw|arw|srf|sr2|dng|orf|rw2|raf|pef|srw|3fr|iiq|erf|kdc|mrw|x3f|raw|rwl)$/i;
+const PRO_MAKES = /canon|nikon|sony|fujifilm|panasonic|olympus|om digital|pentax|ricoh|leica|hasselblad|sigma|phase one|samsung techwin/i;
+
+// Reads Orientation, Make and Model from IFD0 of a TIFF structure starting at byte t.
+function readTiff(dv, t) {
+  try {
+    const bo = dv.getUint16(t);
+    if (bo !== 0x4949 && bo !== 0x4D4D) return {};
+    const le = bo === 0x4949, u16 = o => dv.getUint16(t + o, le), u32 = o => dv.getUint32(t + o, le);
+    if (![42, 0x4F52, 0x5352, 0x55].includes(u16(2))) return {};
+    const ifd = u32(4), n = u16(ifd), out = {};
+    for (let k = 0; k < n && k < 400; k++) {
+      const e = ifd + 2 + k * 12, tag = u16(e), type = u16(e + 2), cnt = u32(e + 4);
+      if (tag === 0x0112) out.orientation = u16(e + 8);
+      if ((tag === 0x010F || tag === 0x0110) && type === 2) {
+        const off = cnt > 4 ? u32(e + 8) : e + 8; let s = '';
+        for (let i = 0; i < cnt && i < 64; i++) { const c = dv.getUint8(t + off + i); if (!c) break; s += String.fromCharCode(c); }
+        out[tag === 0x010F ? 'make' : 'model'] = s.trim();
+      }
+    }
+    return out;
+  } catch (e) { return {}; }
+}
+// Finds the EXIF block in a JPEG and reads it.
+function jpegExif(dv) {
+  try {
+    if (dv.getUint16(0) !== 0xFFD8) return {};
+    let o = 2;
+    while (o + 4 < dv.byteLength) {
+      if (dv.getUint8(o) !== 0xFF) return {};
+      const m = dv.getUint8(o + 1);
+      if (m === 0xDA || m === 0xD9) return {};
+      const len = dv.getUint16(o + 2);
+      if (m === 0xE1 && dv.getUint32(o + 4) === 0x45786966) return readTiff(dv, o + 10);
+      o += 2 + len;
+    }
+  } catch (e) {}
+  return {};
+}
+function rawMeta(dv, u8) {
+  const b0 = dv.getUint16(0);
+  if (b0 === 0x4949 || b0 === 0x4D4D) return readTiff(dv, 0); // CR2, NEF, ARW, DNG, ORF, RW2, PEF…
+  if (String.fromCharCode(...u8.subarray(0, 8)) === 'FUJIFILM') { // RAF
+    let s = ''; for (let i = 0x1C; i < 0x3C; i++) { if (!u8[i]) break; s += String.fromCharCode(u8[i]); }
+    return { make: 'FUJIFILM', model: s.trim() };
+  }
+  const lim = Math.min(u8.length - 8, 1 << 20); // CR3: TIFF inside the CMT1 box
+  for (let i = 0; i < lim; i++) if (u8[i] === 0x43 && u8[i + 1] === 0x4D && u8[i + 2] === 0x54 && u8[i + 3] === 0x31) return readTiff(dv, i + 4);
+  return {};
+}
+// Walks one JPEG from its SOI marker; returns its byte range and size, or null if it isn't a real JPEG.
+function walkJpeg(u8, s) {
+  const n = u8.length; let o = s + 2, sof = 0, w = 0, h = 0;
+  while (o + 1 < n) {
+    if (u8[o] !== 0xFF) return null;
+    const m = u8[o + 1];
+    if (m === 0xFF) { o++; continue; }
+    if (m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { o += 2; continue; }
+    if (m === 0xD9) return sof ? { start: s, end: o + 2, w, h, ok: sof === 0xC0 || sof === 0xC1 || sof === 0xC2 } : null;
+    if (o + 3 >= n) return null;
+    const len = (u8[o + 2] << 8) | u8[o + 3];
+    if (len < 2) return null;
+    if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) { sof = m; h = (u8[o + 5] << 8) | u8[o + 6]; w = (u8[o + 7] << 8) | u8[o + 8]; }
+    o += 2 + len;
+    if (m === 0xDA) { // skip entropy-coded data up to the next real marker
+      while (o + 1 < n) {
+        if (u8[o] === 0xFF) { const b = u8[o + 1]; if (b === 0x00 || (b >= 0xD0 && b <= 0xD7) || b === 0xFF) { o += b === 0xFF ? 1 : 2; continue; } break; }
+        o++;
+      }
+    }
+  }
+  return null;
+}
+function findJpegs(u8) {
+  const out = [];
+  for (let i = 0; i < u8.length - 3; i++) {
+    if (u8[i] !== 0xFF || u8[i + 1] !== 0xD8 || u8[i + 2] !== 0xFF) continue;
+    const r = walkJpeg(u8, i);
+    if (r) { out.push(r); i = r.end - 1; }
+  }
+  return out;
+}
+function orient(img, o) {
+  if (!o || o === 1 || o > 8) return img;
+  const [w, h] = dims(img), swap = o >= 5, c = newCanvas(swap ? h : w, swap ? w : h), x = c.getContext('2d');
+  const T = { 2: [-1, 0, 0, 1, w, 0], 3: [-1, 0, 0, -1, w, h], 4: [1, 0, 0, -1, 0, h], 5: [0, 1, 1, 0, 0, 0], 6: [0, 1, -1, 0, h, 0], 7: [0, -1, -1, 0, h, w], 8: [0, -1, 1, 0, 0, w] }[o];
+  x.transform(...T); x.drawImage(img, 0, 0);
+  return c;
+}
+async function decodeFile(file) {
+  if (!RAW_RE.test(file.name)) {
+    const img = await loadBlob(file); let meta = {};
+    try { meta = jpegExif(new DataView(await file.slice(0, 262144).arrayBuffer())); } catch (e) {}
+    return { img, raw: false, make: meta.make, model: meta.model };
+  }
+  const buf = await file.arrayBuffer(), u8 = new Uint8Array(buf), dv = new DataView(buf);
+  const meta = rawMeta(dv, u8);
+  const jp = findJpegs(u8).filter(j => j.ok && j.w > 0).sort((a, b) => b.w * b.h - a.w * a.h);
+  for (const j of jp) {
+    try {
+      const part = u8.subarray(j.start, j.end);
+      const img = await loadBlob(new Blob([part], { type: 'image/jpeg' }));
+      const own = jpegExif(new DataView(part.buffer, part.byteOffset, part.byteLength));
+      // If the preview carries its own orientation the browser already applied it.
+      return { img: orient(img, own.orientation > 1 ? 1 : meta.orientation), raw: true, make: meta.make, model: meta.model };
+    } catch (e) {}
+  }
+  throw new Error('no-preview');
+}
+function cameraLabel(info) {
+  const make = (info.make || '').trim(), model = (info.model || '').trim();
+  if (!model) return make;
+  return model.toLowerCase().startsWith(make.split(' ')[0].toLowerCase()) ? model : `${make} ${model}`.trim();
+}
+function detectSet(info, A) {
+  const cam = `${info.make || ''} ${info.model || ''}`;
+  if (/camp\s?snap/i.test(cam)) return 'campsnap';
+  if (info.raw || PRO_MAKES.test(cam)) return 'dslr';
+  if (A.w * A.h >= 12e6 && A.noise < .45) return 'dslr';
+  return 'campsnap';
+}
+
+async function addPhoto(fileOrBlob, name, isSample = false) {
+  const info = isSample ? { img: await loadBlob(fileOrBlob), raw: false } : await decodeFile(fileOrBlob);
+  const img = info.img;
+  const A = analyze(img), set = isSample ? 'campsnap' : detectSet(info, A), R = rank(A, set);
+  const p = { name, img, isSample, A, R, set, raw: info.raw, camera: cameraLabel(info), filterId: R[0].id, strength: 1,
     preview: drawToData(img, PREVIEW_MAX), thumb: drawToData(img, THUMB_MAX) };
   S.photos.push(p);
   return p;
 }
 
 async function addFiles(files) {
-  const list = [...files].filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name));
-  if (!list.length) { toast('No photos found. Add JPEG or PNG files from the camera\'s SD card.'); return; }
+  const list = [...files].filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name) || RAW_RE.test(f.name));
+  if (!list.length) { toast('No photos found. Add JPEG, PNG or camera RAW files.'); return; }
   if (S.photos.length === 1 && S.photos[0].isSample) { S.photos = []; S.cur = -1; }
   const first = S.photos.length;
   let failed = 0;
@@ -580,7 +811,7 @@ async function addFiles(files) {
     if (S.cur < 0 && S.photos.length) select(first);
     await nextFrame();
   }
-  if (failed) toast(`Couldn't open ${failed} file${failed > 1 ? 's' : ''}. HEIC and RAW aren't supported; use JPEG or PNG.`);
+  if (failed) toast(`Couldn't open ${failed} file${failed > 1 ? 's' : ''}. HEIC isn't supported, and a RAW file needs an embedded preview; export it as JPEG instead.`);
   else toast(`${list.length} photo${list.length > 1 ? 's' : ''} developed.`);
   if (S.photos.length > first) select(first);
 }
@@ -593,6 +824,8 @@ function select(i) {
   $('photoName').textContent = p.name;
   $('photoDims').textContent = `${p.A.w} × ${p.A.h} px`;
   $('sampleNote').hidden = !p.isSample;
+  $('photoCam').textContent = p.camera || '';
+  $('rawNote').hidden = !p.raw;
   p.fthumbs = null;
   renderFilterGrid();
   update();
@@ -634,6 +867,7 @@ function renderPanel(p, F) {
   $('saveAllBtn').hidden = (EMBEDDED && !DL) || S.photos.length < 2;
   $('scene').textContent = sceneLabel(p.A);
   document.querySelectorAll('.fbtn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === F.id)));
+  document.querySelectorAll('#setSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.set === p.set)));
   renderMeters(p.A);
   renderFixes(p.A, F);
 }
@@ -672,6 +906,12 @@ function renderFixes(A, F) {
   list.push(['Levels', lv.length ? 'Stretched ' + lv.join(', ') : 'Full tonal range already used']);
   const stops = Math.log2(Math.pow(C.med, C.gamma) / C.med);
   list.push(['Exposure', Math.abs(stops) < .1 ? 'Midtones left as shot' : `${stops > 0 ? 'Lifted' : 'Lowered'} midtones by about ${Math.abs(stops).toFixed(1)} stop${Math.abs(stops) >= 1.05 ? 's' : ''}`]);
+  const tone = [];
+  if (C.shadows > .05) tone.push(C.shadows > .4 ? 'opened shadows strongly' : 'opened shadows');
+  if (C.highlights > .05) tone.push(C.highlights > .5 ? 'pulled bright areas well back' : 'pulled back bright areas');
+  if (C.clarity > .05) tone.push('added clarity');
+  if (C.clarity < -.05) tone.push('softened fine texture');
+  if (tone.length) list.push(['Tone', tone.join(', ').replace(/^./, c => c.toUpperCase())]);
   list.push(['Detail', C.sharpen > 0 ? 'Light sharpening for the soft fixed-focus lens' : A.noise >= .55 ? 'No sharpening, to avoid boosting noise' : 'Already sharp enough']);
   if (A.noise >= .45 && F.grain >= .3) list.push(['Grain', 'Film grain blends in the sensor noise']);
   const ul = $('fixes'); ul.innerHTML = '';
@@ -740,7 +980,12 @@ $('strength').addEventListener('input', e => {
   const p = S.photos[S.cur]; if (!p) return;
   p.strength = e.target.value / 100; $('strengthOut').textContent = e.target.value + '%'; update();
 });
-$('bestBtn').addEventListener('click', () => { const p = S.photos[S.cur]; p.filterId = p.R[0].id; update(); });
+document.querySelectorAll('#setSeg button').forEach(b => b.addEventListener('click', () => {
+  const p = S.photos[S.cur]; if (!p || p.set === b.dataset.set) return;
+  p.set = b.dataset.set; p.R = rank(p.A, p.set); p.filterId = p.R[0].id;
+  renderFilterGrid(); update();
+}));
+$('bestBtn').addEventListener('click',() => { const p = S.photos[S.cur]; p.filterId = p.R[0].id; update(); });
 $('addBtn').addEventListener('click', () => $('fileIn').click());
 $('fileIn').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
 
@@ -754,7 +999,7 @@ window.addEventListener('paste', e => { const f = [...(e.clipboardData?.files ||
 
 /* export */
 async function exportFull(p) {
-  const c = newCanvas(p.img.naturalWidth, p.img.naturalHeight), x = ctx2d(c);
+  const [fw, fh] = dims(p.img), c = newCanvas(fw, fh), x = ctx2d(c);
   x.drawImage(p.img, 0, 0);
   const src = x.getImageData(0, 0, c.width, c.height);
   x.putImageData(render(src, p.A, byId(p.filterId), p.strength), 0, 0);
