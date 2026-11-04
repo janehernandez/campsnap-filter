@@ -118,7 +118,7 @@ h2.fname { font-family: var(--font-display); font-weight: 800; font-size: 32px; 
 .slider-row output { font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; min-width: 4ch; text-align: right; }
 input[type=range] { width: 100%; accent-color: var(--accent); }
 
-.fgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; }
+.fgrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 8px; }
 .fbtn { border: 0; background: none; padding: 0; cursor: pointer; display: grid; gap: 4px; text-align: left; min-width: 0; }
 .fbtn canvas { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; display: block; border-radius: 5px; outline: 2px solid transparent; outline-offset: 2px; background: var(--line); }
 .fbtn[aria-pressed="true"] canvas { outline-color: var(--accent); }
@@ -348,6 +348,13 @@ const FILTERS = [
     rgb: [[0, .04], [.25, .27], [.5, .53], [.75, .77], [1, .96]], r: [[0, 0], [.5, .52], [1, 1]], b: [[0, .03], [.5, .48], [1, .96]],
     sat: .9, vib: .1, sh: [.01, .005, 0], hi: [.015, .008, -.008], grain: .14, vignette: .15, wbKeep: .5, shadows: .1, highlights: .35, clarity: .05 },
 
+  /* Cinematic: film-print grade shared by both sets. Rolled-off highlights, lifted-but-dense blacks,
+     cyan-green shadows against warm highlights, restrained saturation, a slightly darker exposure and fine grain. */
+  { id: 'cinematic', set: 'both', name: 'Cinematic', blurb: 'A movie-print grade: dense contrast, cool shadows, warm skin and highlights, quiet color.',
+    rgb: [[0, .075], [.2, .19], [.5, .47], [.8, .79], [1, .93]], r: [[0, 0], [.5, .51], [1, 1]], g: [[0, .01], [.5, .5], [1, .99]], b: [[0, .03], [.5, .49], [1, .95]],
+    sat: .7, vib: .05, sh: [-.035, .015, .03], hi: [.035, .02, -.02], grain: .12, vignette: .3, wbKeep: .5, expTarget: .44,
+    shadows: .15, highlights: .3, clarity: .1 },
+
   /* Learned look: a 17×17×17 color lookup table fitted from a before/after pair
      (05.16.26 DJ & JANE (LASPINAS): RAW/J2/MNWR0160.JPG → ENHANCED/PREPS/MNWR0160.jpg).
      Shown in both filter sets. White balance is left alone because the edit was made on the camera's own color. */
@@ -460,6 +467,7 @@ function terms(A, id) {
     case 'hdr': return [[4, ramp(A.clipHi, .005, .05), 'Bright areas near clipping to pull back'], [3, ramp(A.clipLo, .03, .2), 'Deep shadows hiding detail'], [2, ramp(A.contrast, .24, .34), 'A wide range from dark to bright']];
     case 'moody': return [[3, 1 - ramp(A.bright, .3, .5), 'Dark, low-key exposure'], [1, ramp(A.contrast, .2, .3), 'Strong shapes in the light'], [1, 1 - ramp(A.sat, .2, .4), 'Muted colors suit a moody grade']];
     case 'fineart': return [[3, 1 - ramp(A.sat, .1, .25), 'Very little color to lose'], [2, ramp(A.contrast, .22, .32), 'Strong contrast and shapes'], [1, ramp(A.castMag, .06, .15), 'Mixed or tinted light that black and white sidesteps']];
+    case 'cinematic': return [[2, ramp(A.skin, .02, .15), 'People to put at the center of the shot'], [2, bell(A.contrast, .24, .08), 'A contrast range that grades well'], [1, bell(A.bright, .45, .18), 'Mid exposure suits a film grade'], [1, ramp(A.sat, .2, .4), 'Strong colors to pull into a graded palette']];
     case 'djjane': { const sim = refSim(A, byId('djjane').ref);
       return [[4, sim, 'Light and color close to the shot this look was learned from'], [2, ramp(A.skin, .03, .15), 'Skin tones, like the reference photo'], [1, bell(A.bright, .6, .2), 'Bright exposure suits the soft matte finish'], [1, 1 - ramp(A.noise, .5, .9), 'Clean enough for the fine grain to read as film']]; }
     case 'filmemu': return [[2, ramp(A.skin, .03, .15), 'People look natural in film tones'], [2, bell(A.bright, .55, .2), 'Bright, even exposure'], [1, 1 - ramp(A.contrast, .2, .3), 'Gentle contrast to start from']];
@@ -496,8 +504,9 @@ function corrections(A, F) {
   const black = A.black, white = A.white;
   const med = clamp((A.median - black) / (white - black), .03, .97);
   const goal = F.expTarget ?? .46;
-  const target = med + (goal - med) * .7;
-  const gamma = clamp(Math.log(target) / Math.log(med), .55, 1.45);
+  // Brighten dark frames firmly; darken bright (often deliberately high-key) frames only gently.
+  const target = med + (goal - med) * (goal > med ? .7 : .3);
+  const gamma = clamp(Math.log(target) / Math.log(med), .55, 1.2);
   const sharpen = (A.sharp < .45 && A.noise < .55) ? .35 * (1 - A.sharp) : 0;
   // Local tone amounts scale up when the frame actually has clipped-looking shadows or highlights.
   const shadows = (F.shadows || 0) * (.6 + .8 * ramp(A.clipLo, .01, .15));
