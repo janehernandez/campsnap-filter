@@ -126,10 +126,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .fbtn .p { font-family: var(--font-mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; gap: 6px; align-items: center; }
 .fbtn .best { color: var(--accent-ink); font-weight: 700; }
 
-.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--bg); }
-.seg button { border: 0; background: transparent; padding: 5px 11px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
-.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 .meters { display: grid; gap: 10px; }
 .meter { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
 .meter .k { color: var(--muted); }
@@ -210,13 +206,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
       </section>
 
       <section>
-        <div class="set-row">
-          <span class="eyebrow">Filter set</span>
-          <div class="seg" id="setSeg" role="group" aria-label="Filter set">
-            <button type="button" data-set="campsnap" aria-pressed="true">Camp Snap</button>
-            <button type="button" data-set="dslr" aria-pressed="false">DSLR / RAW</button>
-          </div>
-        </div>
         <div class="eyebrow"><span>All filters</span><span>Match</span></div>
         <div class="fgrid" id="fgrid"></div>
       </section>
@@ -503,12 +492,12 @@ function refSim(A, R) {
   return Math.exp(-(((A.bright - R.bright) / .18) ** 2 + ((A.sat - R.sat) / .14) ** 2 + ((A.warmth - R.warmth) / .1) ** 2 + ((A.contrast - R.contrast) / .1) ** 2) / 2);
 }
 function rank(A, set) {
-  return FILTERS.filter(f => f.set === set || f.set === 'both').map(f => {
+  return FILTERS.map(f => {
     const t = terms(A, f.id);
     const W = t.reduce((s, x) => s + x[0], 0), score = t.reduce((s, x) => s + x[0] * x[1], 0) / W;
     const reasons = t.filter(x => x[1] > .45).sort((a, b) => b[0] * b[1] - a[0] * a[1]).slice(0, 3).map(x => x[2]);
     // A look learned from the user's own edit gets priority on photos that resemble its reference shot.
-    const sortKey = score + (f.ref ? .12 * refSim(A, f.ref) : 0);
+    const sortKey = score + (f.ref ? .12 * refSim(A, f.ref) : 0) + (f.set === set ? .05 : 0); // small nudge toward looks made for this camera type
     return { id: f.id, score: Math.min(1, sortKey), sortKey, reasons };
   }).sort((a, b) => b.sortKey - a.sortKey);
 }
@@ -935,7 +924,6 @@ function renderPanel(p, F) {
   $('saveAllBtn').hidden = (EMBEDDED && !DL) || S.photos.length < 2;
   $('scene').textContent = sceneLabel(p.A);
   document.querySelectorAll('.fbtn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === F.id)));
-  document.querySelectorAll('#setSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.set === p.set)));
   renderMeters(p.A);
   renderFixes(p.A, F);
 }
@@ -1050,11 +1038,6 @@ $('strength').addEventListener('input', e => {
   const p = S.photos[S.cur]; if (!p) return;
   p.strength = e.target.value / 100; $('strengthOut').textContent = e.target.value + '%'; update();
 });
-document.querySelectorAll('#setSeg button').forEach(b => b.addEventListener('click', () => {
-  const p = S.photos[S.cur]; if (!p || p.set === b.dataset.set) return;
-  p.set = b.dataset.set; p.R = rank(p.A, p.set); p.filterId = p.R[0].id;
-  renderFilterGrid(); update();
-}));
 $('bestBtn').addEventListener('click',() => { const p = S.photos[S.cur]; p.filterId = p.R[0].id; update(); });
 $('addBtn').addEventListener('click', () => $('fileIn').click());
 $('fileIn').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
