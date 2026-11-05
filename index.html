@@ -165,7 +165,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
     <div class="top-actions">
       <span class="counter">Frames <b id="countNum">00</b></span>
       <button class="btn primary" id="addBtn" type="button">Add photos</button>
-      <input type="file" id="fileIn" multiple accept="image/jpeg,image/png,image/webp,image/*,.cr2,.cr3,.crw,.nef,.nrw,.arw,.srf,.sr2,.dng,.orf,.rw2,.raf,.pef,.srw,.3fr,.iiq,.erf,.kdc,.mrw,.x3f,.rwl" hidden>
+      <input type="file" id="fileIn" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*,.heic,.heif,.cr2,.cr3,.crw,.nef,.nrw,.arw,.srf,.sr2,.dng,.orf,.rw2,.raf,.pef,.srw,.3fr,.iiq,.erf,.kdc,.mrw,.x3f,.rwl" hidden>
     </div>
   </header>
 
@@ -184,7 +184,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
         <span id="photoName"></span><span id="photoDims"></span><span id="photoCam"></span><span class="pill" id="rawNote" hidden>RAW · edited from the embedded full-size preview</span><span class="pill" id="sampleNote" hidden>Sample photo · add your own to replace it</span>
       </div>
       <div class="strip-wrap"><div class="strip" id="strip"></div></div>
-      <p class="foot">Photos never leave your device: analysis and editing run in this page. Drop a whole SD-card folder to batch it; every frame gets its own best filter. DSLR RAW files (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2 and more) are opened through the full-size JPEG preview the camera stores inside them, so in-camera settings like picture style are baked in.</p>
+      <p class="foot">Photos never leave your device: analysis and editing run in this page. Drop a whole SD-card folder to batch it; every frame gets its own best filter. iPhone HEIC photos open directly (outside Safari a free decoder, about 2 MB, loads the first time you add one). DSLR RAW files (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2 and more) are opened through the full-size JPEG preview the camera stores inside them, so in-camera settings like picture style are baked in.</p>
     </section>
 
     <aside class="panel" aria-label="Lab report">
@@ -844,7 +844,60 @@ function orient(img, o) {
   x.transform(...T); x.drawImage(img, 0, 0);
   return c;
 }
+/* ---------- HEIC / HEIF (iPhone) ----------
+   Safari decodes HEIC itself. Everywhere else, libheif (pure-JS build: no WebAssembly, no workers) is loaded
+   on first use from jsdelivr and decodes the primary image, applying the file's rotation/mirroring. */
+const HEIC_RE = /\.(heic|heif|hif)$/i;
+const isHeic = f => HEIC_RE.test(f.name || '') || /^image\/hei[cf]/i.test(f.type || '');
+const HEIF_LIB = 'https://cdn.jsdelivr.net/npm/libheif-js@1.19.8/libheif/libheif.js';
+let heifLib = null;
+function loadHeifLib() {
+  return heifLib || (heifLib = new Promise((res, rej) => {
+    const timer = setTimeout(() => rej(new Error('heic-lib-timeout')), 90000);
+    const done = m => { clearTimeout(timer); res(m); };
+    const s = document.createElement('script');
+    s.src = HEIF_LIB; s.async = true; s.crossOrigin = 'anonymous';
+    s.onload = () => {
+      try {
+        const mod = { onRuntimeInitialized: () => done(mod) }; // the factory fills in and returns this same object
+        window.libheif(mod);
+        if (mod.calledRun) done(mod);
+      } catch (e) { clearTimeout(timer); rej(e); }
+    };
+    s.onerror = () => { clearTimeout(timer); rej(new Error('heic-lib')); };
+    document.head.appendChild(s);
+  }).catch(e => { heifLib = null; throw e; }));
+}
+function heicExif(u8) { // the Exif item is stored as "Exif\0\0" + a TIFF block somewhere in the file
+  for (let i = 0, n = u8.length - 16; i < n; i++) {
+    if (u8[i] === 0x45 && u8[i + 1] === 0x78 && u8[i + 2] === 0x69 && u8[i + 3] === 0x66 && !u8[i + 4] && !u8[i + 5]
+      && ((u8[i + 6] === 0x4D && u8[i + 7] === 0x4D) || (u8[i + 6] === 0x49 && u8[i + 7] === 0x49))) {
+      const m = readTiff(new DataView(u8.buffer, u8.byteOffset), i + 6);
+      if (m.make || m.model) return m;
+    }
+  }
+  return {};
+}
+async function decodeHeic(file) {
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  const meta = heicExif(u8);
+  try { return { img: await loadBlob(file), raw: false, make: meta.make, model: meta.model }; } catch (e) {} // Safari
+  toast(`Decoding ${file.name} (HEIC)…`);
+  const lib = await loadHeifLib();
+  const imgs = new lib.HeifDecoder().decode(u8);
+  if (!imgs || !imgs.length) throw new Error('heic-empty');
+  try {
+    const im = imgs.find(i => typeof i.is_primary === 'function' && i.is_primary()) || imgs[0];
+    const w = im.get_width(), h = im.get_height();
+    const c = newCanvas(w, h), x = c.getContext('2d'), id = x.createImageData(w, h);
+    await new Promise((res, rej) => im.display(id, d => d ? res() : rej(new Error('heic-decode'))));
+    x.putImageData(id, 0, 0);
+    return { img: c, raw: false, make: meta.make, model: meta.model };
+  } finally { for (const i of imgs) try { i.free && i.free(); } catch (e) {} }
+}
+
 async function decodeFile(file) {
+  if (isHeic(file)) return decodeHeic(file);
   if (!RAW_RE.test(file.name)) {
     const img = await loadBlob(file); let meta = {};
     try { meta = jpegExif(new DataView(await file.slice(0, 262144).arrayBuffer())); } catch (e) {}
@@ -888,19 +941,21 @@ async function addPhoto(fileOrBlob, name, isSample = false) {
 }
 
 async function addFiles(files) {
-  const list = [...files].filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name) || RAW_RE.test(f.name));
-  if (!list.length) { toast('No photos found. Add JPEG, PNG or camera RAW files.'); return; }
+  const list = [...files].filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name) || RAW_RE.test(f.name) || isHeic(f));
+  if (!list.length) { toast('No photos found. Add JPEG, PNG, HEIC or camera RAW files.'); return; }
   if (S.photos.length === 1 && S.photos[0].isSample) { S.photos = []; S.cur = -1; }
   const first = S.photos.length;
-  let failed = 0;
+  let failed = 0, heicFail = 0;
   for (let k = 0; k < list.length; k++) {
     toast(`Analyzing ${k + 1} of ${list.length}…`);
-    try { await addPhoto(list[k], list[k].name); } catch (e) { failed++; }
+    try { await addPhoto(list[k], list[k].name); } catch (e) { failed++; if (isHeic(list[k])) heicFail++; }
     renderStrip();
     if (S.cur < 0 && S.photos.length) select(first);
     await nextFrame();
   }
-  if (failed) toast(`Couldn't open ${failed} file${failed > 1 ? 's' : ''}. HEIC isn't supported, and a RAW file needs an embedded preview; export it as JPEG instead.`);
+  if (failed) toast(heicFail === failed
+    ? `Couldn't open ${failed} HEIC file${failed > 1 ? 's' : ''}. The decoder may be blocked or offline; try Safari, or set iPhone Settings › Camera › Formats to Most Compatible.`
+    : `Couldn't open ${failed} file${failed > 1 ? 's' : ''}. A RAW file needs an embedded preview, and HEIC needs the decoder to load; export as JPEG instead.`);
   else toast(`${list.length} photo${list.length > 1 ? 's' : ''} developed.`);
   if (S.photos.length > first) select(first);
 }
